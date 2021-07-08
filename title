@@ -1,0 +1,2 @@
+sed /title:/s/title:.*/\L&/; s/title:[[:blank:]]*\([a-zA-Z]\)/title: \u\1/
+
