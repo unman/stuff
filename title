@@ -1,2 +1,1 @@
-sed /title:/s/title:.*/\L&/; s/title:[[:blank:]]*\([a-zA-Z]\)/title: \u\1/
-
+find . -iname '*.md' -execdir /usr/bin/sed -i '/^title:/s/title:.*/\L&/; s/title:[[:blank:]]*\([a-zA-Z]\)/title: \u\1/' {} ';'
