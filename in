@@ -138,6 +138,7 @@ qvm-run -q -u root $qube_name  "nft list table filter|grep '$proto dport $portnu
 if [ $? -eq 0 ]; then
 	echo "Input rule in $qube_name already exists"
 	echo "Please check configuration - exiting now."
+	exit
 else
 	handle=$( get_handle $qube_name filter related,established 1)
 	qvm-run -q -u root $qube_name -- nft add rule filter INPUT position $handle iifname eth0 $proto dport $portnum accept
