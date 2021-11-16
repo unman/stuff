@@ -12,8 +12,40 @@ else
 fi
 }
 
-setup_forwarding(){
-exit
+get_handle(){
+local my_handle=$( qvm-run -q -u root -p $1 " nft -a list table $2|awk 'BEGIN{c=0} /$3/{c++; if (c==$4) print \$NF}' " )
+echo $my_handle
+}
+
+tunnel(){
+declare -a my_netvms=("${!1}")
+declare -a my_ips=("${!2}")
+declare -i numhops
+numhops=${#my_ips[@]}
+local i=1
+iface="eth0"
+numhops=$((numhops-1))
+while [ $i -ne $numhops ]
+do
+	qvm-run -q -u root ${my_netvms[$i]} " nft list table nat|grep ' $proto dport $portnum dnat to ${my_ips[$i-1]}'"
+	if [ $? -eq 0 ]; then
+		echo "Are rules already set?"
+		exit
+	else
+		qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule nat PR-QBS meta iifname $iface $proto dport $portnum dnat to ${my_ips[$i-1]}
+		local handle=$( get_handle ${my_netvms[$i]} filter related,established 2 )
+		qvm-run -q -u root ${my_netvms[$i]} -- nft add rule filter FORWARD position $handle meta iifname $iface ip daddr ${my_ips[$i-1]} $proto dport $portnum ct state new accept
+	fi
+	((i++))
+done
+qvm-run -q -u root ${my_netvms[$i]} " nft list table nat|grep ' $proto dport $portnum dnat to ${my_ips[$i-1]}'"
+if [ $? -eq 0 ]; then
+	echo "Are rules already set?"
+	exit
+else
+	qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule nat PR-QBS meta iifname $external_iface $proto dport $portnum dnat to ${my_ips[$i-1]}
+	qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule filter FORWARD meta iifname $external_iface ip daddr ${my_ips[$i-1]} $proto dport $portnum ct state new accept
+fi
 }
 
 if [ $# -ne 3 ]; then
@@ -47,7 +79,7 @@ if [ $? -ne 0 ]; then
     fi
   fi
 else
-portnum=$3
+	portnum=$3
 fi
 
 # Get all netvms
@@ -55,11 +87,12 @@ declare -a netvms
 declare -a ips
 declare -a external_ips
 hop=0
-IFS='|' read -r netvms[$hop] ips[$hop] <<< $(qvm-ls $qube_name --raw-data -O netvm,IP)
-while [ ${netvms[hop]} != "-" ]
+netvms[$hop]=$qube_name
+IFS='|' read -r netvms[$hop+1] ips[$hop] <<< $(qvm-ls $qube_name --raw-data -O netvm,IP)
+while [ ${netvms[hop+1]} != "-" ]
 do
   ((hop++))
-  IFS='|' read -r netvms[$hop] ips[$hop] <<< $(qvm-ls ${netvms[$hop-1]} --raw-data -O netvm,IP)
+  IFS='|' read -r netvms[$hop+1] ips[$hop] <<< $(qvm-ls ${netvms[$hop]} --raw-data -O netvm,IP)
 done
 if [ $hop -eq 0 ]; then
 	echo "$qube_name is not network connected"
@@ -68,8 +101,8 @@ if [ $hop -eq 0 ]; then
 fi
 
 # Check last hop has external IP address 
-readarray -t external_ips < <( qvm-run -p ${netvms[$hop-1]} "ip -4 -o a|grep -wv 'lo\|vif[0-9]'"|awk '{print $2,$4}')
-#readarray -t external_ips < <( qvm-run -p ${netvms[$hop-1]} "ip -4 -o a|grep -wv 'vif[0-9]'"|awk '{print $2,$4}')
+readarray -t external_ips < <( qvm-run -p ${netvms[$hop]} "ip -4 -o a|grep -wv 'lo\|vif[0-9]*.*'"|awk '{print $2,$4}')
+#readarray -t external_ips < <( qvm-run -p ${netvms[$hop]} "ip -4 -o a|grep -wv 'vif[0-9]'"|awk '{print $2,$4}')
 num_ifs=${#external_ips[@]}
 if [ $num_ifs -eq 1 ]; then
   interface=0
@@ -90,10 +123,23 @@ elif [ $num_ifs -gt 1 ]; then
   fi
   ((interface--))
 else
-  echo "${netvms[$hop-1]} does not have an external interface"
+  echo "${netvms[$hop]} does not have an external interface"
   echo "Cannot set up a tunnel"
   exit
 fi
+external_ip=${external_ips[$interface]}
+external_iface="${external_ip%[[:space:]]*}"
+ip="${external_ip#*[0-9]}"
+ip="${ip%%/*}"
+ips[$hop]=$ip
 
 # Create tunnel
-qvm-run -u root $qube_name "nft insert rule filter INPUT iifname eth0 -p $proto --dport $portnum accept"
+qvm-run -q -u root $qube_name  "nft list table filter|grep '$proto dport $portnum accept' "
+if [ $? -eq 0 ]; then
+	echo "Input rule in $qube_name already exists"
+	echo "Please check configuration - exiting now."
+else
+	handle=$( get_handle $qube_name filter related,established 1)
+	qvm-run -q -u root $qube_name -- nft add rule filter INPUT position $handle iifname eth0 $proto dport $portnum accept
+	tunnel netvms[@] ips[@]
+fi
