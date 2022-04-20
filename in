@@ -88,8 +88,8 @@ do
 	# Is it nft or iptables?
 	local found=$( qvm-run -p -q -u root ${my_netvms[$i]} -- nft list table nat 2>/dev/null )
 	if [[ x$found == 'x' ]]; then
-		qvm-run -q -u root ${my_netvms[$i]} -- iptables -I QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT
-		qvm-run -q -u root ${my_netvms[$i]} -- iptables -t nat -I PR-QBS-SERVICES -i $iface -p $proto --dport $portnum_used -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target
+		qvm-run -q -u root ${my_netvms[$i]} -- "iptables -I QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT"
+		qvm-run -q -u root ${my_netvms[$i]} -- "iptables -t nat -I PR-QBS-SERVICES -i $iface -p $proto --dport $portnum_used -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target"
 	else
 		qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule nat PR-QBS-SERVICES meta iifname $iface $proto dport $portnum_used dnat to ${my_ips[$i-1]}:$portnum_target
 		qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule filter QBS-FORWARD meta iifname $iface ip daddr ${my_ips[$i-1]} $proto dport $portnum_target ct state new accept
@@ -120,15 +120,15 @@ do
   fi
 	# Is it nft or iptables?
 	echo "${my_netvms[$i]}"
-	local found=$( qvm-run -p -q -u root ${my_netvms[$i]} -- nft list table nat 2>/dev/null )
+	local found=$( qvm-run -p -q -u root ${my_netvms[$i]} -- "nft list table nat 2>/dev/null" )
  	if [[ x$found == 'x' ]]; then
-		qvm-run -q -u root ${my_netvms[$i]} -- iptables -D QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT
-		qvm-run -q -u root ${my_netvms[$i]} -- iptables -t nat -D PR-QBS-SERVICES -i $iface -p $proto --dport $external_portnum -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target
+		qvm-run -q -u root ${my_netvms[$i]} -- "iptables -D QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT"
+		qvm-run -q -u root ${my_netvms[$i]} -- "iptables -t nat -D PR-QBS-SERVICES -i $iface -p $proto --dport $external_portnum -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target"
 	else
 		local handle=$( get_handle ${my_netvms[$i]} nat "dport $external_portnum " 1 )
-		qvm-run -q  -u root ${my_netvms[$i]} -- nft delete rule nat PR-QBS-SERVICES handle $handle
+		qvm-run -q  -u root ${my_netvms[$i]} -- "nft delete rule nat PR-QBS-SERVICES handle $handle"
 		local handle=$( get_handle ${my_netvms[$i]} filter "dport $external_portnum " 1 )
-		qvm-run -q -u root ${my_netvms[$i]} -- nft delete rule filter QBS-FORWARD handle $handle
+		qvm-run -q -u root ${my_netvms[$i]} -- "nft delete rule filter QBS-FORWARD handle $handle"
 	fi
 	((i--))
 done
@@ -256,3 +256,4 @@ elif [ $1 == "add" ]; then
 else
 	get_help
 fi
+
