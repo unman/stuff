@@ -16,3 +16,6 @@ You will need to enter the UUID in the script.
 ## RAM qubes
 `ramqube.sh` and `rmram.sh` are simple scripts to create qubes in a RAM disk pool, and clean up when done.
 
+## in.sh
+`in.sh` is a simple script to allow external access to a qube, regardless of how deeply nested it is.
+E.g. `in.sh add target tcp 22` will create rules on all relevant netvms allowing remote ssh access to the target qube.
