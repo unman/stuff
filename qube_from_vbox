@@ -1,0 +1,70 @@
+#!/bin/sh
+
+get_help(){
+cat <<HERE
+Create Standalone from Vagrant vbox image
+
+Specify name of qube where image is downloaded, path to downloaded image, and name to be used for new qube
+HERE
+exit
+}
+
+clean_up(){
+qvm-run "$1" "rm -rf /home/user/transitory/"
+qvm-run "$1" "rm -rf /home/user/img/"
+sudo umount transitory
+rm -rf transitory
+exit
+}
+
+if [ $# -ne 3 ]; then
+  get_help
+fi
+
+qvm-check --quiet "$3"  2>/dev/null
+if [ $? -eq 0 ];then
+  echo "qube '$3' already exists"
+  exit
+fi
+
+qvm-check --quiet "$1"  2>/dev/null
+if [ $? -ne 0 ];then
+  echo "There is no qube named '$1'"
+  exit
+fi
+
+qvm-run -q -p "$1" "ls $2" 
+if [ $? -ne 0 ];then
+  echo "Can't find that file"
+  exit
+fi
+
+sudo lvcreate -n extra_space -V 100G --thinpool vm-pool qubes_dom0
+sudo mkfs.ext4 /dev/qubes_dom0/extra_space
+mkdir transitory
+sudo mount  /dev/qubes_dom0/extra_space transitory
+sudo chown -R user transitory
+
+qvm-run "$1" "mkdir /home/user/transitory"
+qvm-run "$1" "mkdir /home/user/img"
+qvm-run "$1" "tar -C /home/user/transitory -zxf $2"
+if [ $? -eq 2 ];then
+  qvm-run "$1" "tar -C /home/user/transitory -xf $2"
+  if [ $? -eq 2 ];then
+    echo "Some problem extracting that file"
+    exit
+  fi
+fi
+qvm-run "$1" "qemu-img convert -O raw /home/user/transitory/*.vmdk  img/$3.img"
+echo "Copying raw image to dom0"
+qvm-run -p "$1" "cat img/$3.img" > transitory/$3.img
+echo "Creating standalone"
+
+qvm-create --class StandaloneVM --property=virt_mode=hvm --property=memory=4096 --property=kernel='' -l purple --root-move-from /home/user/transitory/$3.img $3
+if [ $? -eq 0 ];then
+  echo "Standalone $3 created"
+  clean_up
+else
+  echo "Something went wrong creating the Standalone"
+  echo "You will need to manually clean up"
+fi

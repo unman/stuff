@@ -19,3 +19,8 @@ You will need to enter the UUID in the script.
 ## in.sh
 `in.sh` is a simple script to allow external access to a qube, regardless of how deeply nested it is.
 E.g. `in.sh add target tcp 22` will create rules on all relevant netvms allowing remote ssh access to the target qube.
+ 
+## qube_from_vbox
+Simple script to create standalone from Vbox images.
+Makes it easy to download vagrant boxes and create standalones
+`qube_from_vbox <qube_containing_box> <path to downloaded box> <name for new qube>`
