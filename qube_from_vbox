@@ -39,7 +39,7 @@ if [ $? -ne 0 ];then
   exit
 fi
 
-sudo lvcreate -n extra_space -V 100G --thinpool vm-pool qubes_dom0
+sudo lvcreate -n extra_space -V 200G --thinpool vm-pool qubes_dom0
 sudo mkfs.ext4 /dev/qubes_dom0/extra_space
 mkdir transitory
 sudo mount  /dev/qubes_dom0/extra_space transitory
@@ -63,7 +63,7 @@ echo "Creating standalone"
 qvm-create --class StandaloneVM --property=virt_mode=hvm --property=memory=4096 --property=kernel='' -l purple --root-move-from /home/user/transitory/$3.img $3
 if [ $? -eq 0 ];then
   echo "Standalone $3 created"
-  clean_up
+  clean_up "$1"
 else
   echo "Something went wrong creating the Standalone"
   echo "You will need to manually clean up"
