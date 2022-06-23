@@ -46,10 +46,16 @@ else
   fi
   qvm-create $new_qube -t $real_template --property default_dispvm=$dispvm --property netvm=$NETVM -l $LABEL
   cd /dev/qubes_dom0
-  sudo dd if=$(readlink /dev/qubes_dom0/vm-$NAME-private-snap) of=$(readlink /dev/qubes_dom0/vm-$new_qube-private) conv=sparse
-  notify-send "Starting replacement AppVM"
-  qvm-unpause $NAME
-  qvm-kill $NAME
-  qvm-run $new_qube 'find -name .lock* -delete'
-  qvm-run $new_qube "$app" &
+  sudo dd if=$(readlink /dev/qubes_dom0/vm-$NAME-private-snap) of=$(readlink /dev/qubes_dom0/vm-$new_qube-private) conv=sparse bs=1M
+  if [ $? -eq 0 ]; then
+    notify-send "Starting replacement AppVM"
+    qvm-unpause $NAME
+    qvm-kill $NAME
+    qvm-run $new_qube 'find -name .lock* -delete'
+    qvm-run $new_qube "$app" &
+  else
+    qvm-unpause $NAME
+    notify-send "Something went wrong. Rolling back"
+    qvm-remove -f $new_qube 
+  fi
 fi
