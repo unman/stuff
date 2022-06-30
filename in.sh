@@ -5,12 +5,12 @@ check_port(){
 if ! [ "$2" -eq "$2" >& /dev/null ];then
   status=1
 else
-	if [ $2 -lt 65536 ]; then
-		status=0
-		portnum=$2
-	else
-		status=1
-	fi
+  if [ $2 -lt 65536 ]; then
+    status=0
+    portnum=$2
+  else
+    status=1
+  fi
 fi
 if [ $status -ne 0 ]; then
   if !  grep -q -w ^$2\  /etc/services  ; then
@@ -21,8 +21,8 @@ if [ $status -ne 0 ]; then
     if [ $? -ne 0 ]; then
       echo "Specify usable port number"
       exit
-		fi
-	fi
+    fi
+  fi
 fi
 echo $portnum
 }
@@ -36,16 +36,16 @@ Specify target qube, action, tcp or udp, and target port, separated by spaces.
 The target port can be given by port number or by name (e.g ssh).
 The action should be "add" or "delete".
 For example:
-	in add target_qube tcp 80 
-	in add target_qube tcp ssh 
-	in delete target_qube tcp https 
+  in add target_qube tcp 80 
+  in add target_qube tcp ssh 
+  in delete target_qube tcp https 
 
 DO NOT use this script for qubes behind a Tor or VPN proxy.
 At a minimum you risk breaking the security of those proxies.
 
 By default, the script will open a port on the final netvm which is the same as the target port.
 It is possible to specify an alternative port:
-	in add target_qube tcp ssh 80
+  in add target_qube tcp ssh 80
 
 HERE
 exit
@@ -67,34 +67,35 @@ numhops=${#my_ips[@]}
 lasthop=$((numhops-1))
 local i=1
 iface="eth0"
-qvm-run -q -u root ${my_netvms[$lasthop]} " nft list table nat|grep ' $proto dport $portnum dnat to ${my_ips[$numhops-1]}'"
+# Check port is available" 
+qvm-run -q -u root ${my_netvms[$lasthop]} " nft list table nat|grep ' $proto dport $portnum dnat '"
 if [ $? -eq 0 ]; then
-	echo "Are rules already set?"
-	exit
+  echo "External port is already in use" 
+  exit
 fi
 while [ $i -ne $numhops ]
 do
-	if [ $i -eq 1 ]; then
-		portnum_used=$external_portnum
-		portnum_target=$portnum
-	else
-		portnum_used=$external_portnum
-		portnum_target=$external_portnum
-	fi
-	echo "${my_netvms[$i]} $portnum_used"
-	if [ $i -eq $lasthop ]; then
-		iface=$external_iface
-	fi
-	# Is it nft or iptables?
-	local found=$( qvm-run -p -q -u root ${my_netvms[$i]} -- nft list table nat 2>/dev/null )
-	if [[ x$found == 'x' ]]; then
-		qvm-run -q -u root ${my_netvms[$i]} -- "iptables -I QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT"
-		qvm-run -q -u root ${my_netvms[$i]} -- "iptables -t nat -I PR-QBS-SERVICES -i $iface -p $proto --dport $portnum_used -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target"
-	else
-		qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule nat PR-QBS-SERVICES meta iifname $iface $proto dport $portnum_used dnat to ${my_ips[$i-1]}:$portnum_target
-		qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule filter QBS-FORWARD meta iifname $iface ip daddr ${my_ips[$i-1]} $proto dport $portnum_target ct state new accept
-	fi
-	((i++))
+  if [ $i -eq 1 ]; then
+    portnum_used=$external_portnum
+    portnum_target=$portnum
+  else
+    portnum_used=$external_portnum
+    portnum_target=$external_portnum
+  fi
+  echo "${my_netvms[$i]} $portnum_used"
+  if [ $i -eq $lasthop ]; then
+    iface=$external_iface
+  fi
+  # Is it nft or iptables?
+  local found=$( qvm-run -p -q -u root ${my_netvms[$i]} -- nft list table nat 2>/dev/null )
+  if [[ x$found == 'x' ]]; then
+    qvm-run -q -u root ${my_netvms[$i]} -- "iptables -I QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT"
+    qvm-run -q -u root ${my_netvms[$i]} -- "iptables -t nat -I PR-QBS-SERVICES -i $iface -p $proto --dport $portnum_used -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target"
+  else
+    qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule nat PR-QBS-SERVICES meta iifname $iface $proto dport $portnum_used dnat to ${my_ips[$i-1]}:$portnum_target
+    qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule filter QBS-FORWARD meta iifname $iface ip daddr ${my_ips[$i-1]} $proto dport $portnum_target ct state new accept
+  fi
+  ((i++))
 done
 }
 
@@ -118,26 +119,26 @@ do
     portnum_used=$external_portnum
     portnum_target=$external_portnum
   fi
-	# Is it nft or iptables?
-	echo "${my_netvms[$i]}"
-	local found=$( qvm-run -p -q -u root ${my_netvms[$i]} -- "nft list table nat 2>/dev/null" )
- 	if [[ x$found == 'x' ]]; then
-		qvm-run -q -u root ${my_netvms[$i]} -- "iptables -D QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT"
-		qvm-run -q -u root ${my_netvms[$i]} -- "iptables -t nat -D PR-QBS-SERVICES -i $iface -p $proto --dport $external_portnum -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target"
-	else
-		local handle=$( get_handle ${my_netvms[$i]} nat "dport $external_portnum " 1 )
-		qvm-run -q  -u root ${my_netvms[$i]} -- "nft delete rule nat PR-QBS-SERVICES handle $handle"
-		local handle=$( get_handle ${my_netvms[$i]} filter "dport $external_portnum " 1 )
-		qvm-run -q -u root ${my_netvms[$i]} -- "nft delete rule filter QBS-FORWARD handle $handle"
-	fi
-	((i--))
+  # Is it nft or iptables?
+  echo "${my_netvms[$i]}"
+  local found=$( qvm-run -p -q -u root ${my_netvms[$i]} -- "nft list table nat 2>/dev/null" )
+  if [[ x$found == 'x' ]]; then
+    qvm-run -q -u root ${my_netvms[$i]} -- "iptables -D QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT"
+    qvm-run -q -u root ${my_netvms[$i]} -- "iptables -t nat -D PR-QBS-SERVICES -i $iface -p $proto --dport $external_portnum -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target"
+  else
+    local handle=$( get_handle ${my_netvms[$i]} nat "dport $external_portnum " 1 )
+    qvm-run -q  -u root ${my_netvms[$i]} -- "nft delete rule nat PR-QBS-SERVICES handle $handle"
+    local handle=$( get_handle ${my_netvms[$i]} filter "dport $external_portnum " 1 )
+    qvm-run -q -u root ${my_netvms[$i]} -- "nft delete rule filter QBS-FORWARD handle $handle"
+  fi
+  ((i--))
 done
 local found=$( qvm-run -p -q -u root ${my_netvms[$i]} -- nft list table nat 2>/dev/null )
 if [[ x$found == 'x' ]]; then
-	qvm-run -q -u root ${my_netvms[$i]} " iptables -D INPUT -p $proto --dport $external_portnum -j ACCEPT"
+  qvm-run -q -u root ${my_netvms[$i]} " iptables -D INPUT -p $proto --dport $external_portnum -j ACCEPT"
 else
-	handle=$( get_handle ${my_netvms[$i]} filter "dport $portnum " 1 )
-	qvm-run -q -u root ${my_netvms[$i]} -- nft delete rule filter INPUT handle $handle
+  handle=$( get_handle ${my_netvms[$i]} filter "dport $portnum " 1 )
+  qvm-run -q -u root ${my_netvms[$i]} -- nft delete rule filter INPUT handle $handle
 fi
 exit
 }
@@ -150,27 +151,27 @@ return
 
 ## Check inputs
 if [ $# -lt 4 ]; then
-	get_help
+  get_help
 fi
 qvm-check -q $2 2>/dev/null
 if [ "$?" -ne 0 ];then
   echo "$2 is not the name of any qube"
   exit
 else
-	qube_name=$2
+  qube_name=$2
 fi
 if [ "$3" != "tcp" -a "$3" != "udp" ]; then
   echo "Specify tcp or udp"
   exit
 else
-	proto=$3
+  proto=$3
 fi
 portnum=$(check_port $3 $4)
 
 if [ $# -eq 5 ]; then
-	external_portnum=$(check_port $3 $5)
+  external_portnum=$(check_port $3 $5)
 else
-	external_portnum=$portnum
+  external_portnum=$portnum
 fi
 
 # Get all netvms
@@ -186,74 +187,74 @@ do
   IFS='|' read -r netvms[$hop+1] ips[$hop] <<< $(qvm-ls ${netvms[$hop]} --raw-data -O netvm,IP)
 done
 if [ $1 == "delete" ]; then
-	teardown netvms[@] ips[@]
+  teardown netvms[@] ips[@]
 elif [ $1 == "add" ]; then
-	if [ $hop -eq 0 ]; then
-		echo "$qube_name is not network connected"
-		echo "Cannot set up a tunnel"
-		exit
-	fi
+  if [ $hop -eq 0 ]; then
+    echo "$qube_name is not network connected"
+    echo "Cannot set up a tunnel"
+    exit
+  fi
 
-	# Check last hop has external IP address 
-	readarray -t external_ips < <( qvm-run -p ${netvms[$hop]} "ip -4 -o a|grep -wv 'lo\|vif[0-9]*.*'"|awk '{print $2,$4}')
-	#readarray -t external_ips < <( qvm-run -p ${netvms[$hop]} "ip -4 -o a|grep -wv 'vif[0-9]'"|awk '{print $2,$4}')
-	num_ifs=${#external_ips[@]}
-	if [ $num_ifs -eq 1 ]; then
-		interface=0
-	elif [ $num_ifs -gt 1 ]; then
-		echo "${netvms[$hop]} has more than 1 external interface"
-		echo "Which one do you want to use?"
-		for i in $(seq $num_ifs)
-		do
-			echo "$i. ${external_ips[$i-1]}"
-		done
-		read interface
-		if ! [ "$interface" -eq "$interface" ] 2> /dev/null; then
-			echo "No such interface"
-			exit
-		elif [ $interface -gt $num_ifs ] || [ $interface -lt 1 ]; then
-			echo "No such interface"
-			exit
-		fi
-		((interface--))
-	else
-		echo "${netvms[$hop]} does not have an external interface"
+  # Check last hop has external IP address 
+  readarray -t external_ips < <( qvm-run -p ${netvms[$hop]} "ip -4 -o a|grep -wv 'lo\|vif[0-9]*.*'"|awk '{print $2,$4}')
+  #readarray -t external_ips < <( qvm-run -p ${netvms[$hop]} "ip -4 -o a|grep -wv 'vif[0-9]'"|awk '{print $2,$4}')
+  num_ifs=${#external_ips[@]}
+  if [ $num_ifs -eq 1 ]; then
+    interface=0
+  elif [ $num_ifs -gt 1 ]; then
+    echo "${netvms[$hop]} has more than 1 external interface"
+    echo "Which one do you want to use?"
+    for i in $(seq $num_ifs)
+    do
+      echo "$i. ${external_ips[$i-1]}"
+    done
+    read interface
+    if ! [ "$interface" -eq "$interface" ] 2> /dev/null; then
+      echo "No such interface"
+      exit
+    elif [ $interface -gt $num_ifs ] || [ $interface -lt 1 ]; then
+      echo "No such interface"
+      exit
+    fi
+    ((interface--))
+  else
+    echo "${netvms[$hop]} does not have an external interface"
   echo "Cannot set up a tunnel"
   exit
-	fi
-	external_ip=${external_ips[$interface]}
-	external_iface="${external_ip%[[:space:]]*}"
-	ip="${external_ip#*[0-9]}"
-	ip="${ip%%/*}"
-	ips[$hop]=$ip
+  fi
+  external_ip=${external_ips[$interface]}
+  external_iface="${external_ip%[[:space:]]*}"
+  ip="${external_ip#*[0-9]}"
+  ip="${ip%%/*}"
+  ips[$hop]=$ip
 
-	# Create tunnel
-	found=$( qvm-run -p -q -u root $qube_name -- nft list table nat 2>/dev/null )
- 	if [[ x$found == 'x' ]]; then
-		found=$(qvm-run -p -u root $qube_name "iptables -L -nv |grep -c '.*ACCEPT.*$proto dpt:$portnum' ")
-		if [ "$found" -gt 0 ]; then
-			echo "Input rule in $qube_name already exists"
-			echo "Please check configuration - exiting now."
-			exit
-		else
-			qvm-run -q -u root $qube_name  "iptables -I INPUT -p $proto --dport $portnum -j ACCEPT "
-		fi
-	else
-		qvm-run -q -u root $qube_name  "nft list table filter|grep '$proto dport $portnum accept' "
-		if [ $? -eq 0 ]; then
-			echo "Input rule in $qube_name already exists"
-			echo "Please check configuration - exiting now."
-			exit
-		else
-			handle=$( get_handle $qube_name filter related,established 1)
-			qvm-run -q -u root $qube_name -- nft add rule filter INPUT position $handle iifname eth0 $proto dport $portnum accept
-		fi
-	fi
-	tunnel netvms[@] ips[@]
-	if [ $? -ne 0 ]; then
-		teardown netvms[@] ips[@]
-	fi
+  # Create tunnel
+  found=$( qvm-run -p -q -u root $qube_name -- nft list table nat 2>/dev/null )
+  if [[ x$found == 'x' ]]; then
+    found=$(qvm-run -p -u root $qube_name "iptables -L -nv |grep -c '.*ACCEPT.*$proto dpt:$portnum' ")
+    if [ "$found" -gt 0 ]; then
+      echo "Input rule in $qube_name already exists"
+      echo "Please check configuration - exiting now."
+      exit
+    else
+      qvm-run -q -u root $qube_name  "iptables -I INPUT -p $proto --dport $portnum -j ACCEPT "
+    fi
+  else
+    qvm-run -q -u root $qube_name  "nft list table filter|grep '$proto dport $portnum accept' "
+    if [ $? -eq 0 ]; then
+      echo "Input rule in $qube_name already exists"
+      echo "Please check configuration - exiting now."
+      exit
+    else
+      handle=$( get_handle $qube_name filter related,established 1)
+      qvm-run -q -u root $qube_name -- nft add rule filter INPUT position $handle iifname eth0 $proto dport $portnum accept
+    fi
+  fi
+  tunnel netvms[@] ips[@]
+  if [ $? -ne 0 ]; then
+    teardown netvms[@] ips[@]
+  fi
 else
-	get_help
+  get_help
 fi
 
