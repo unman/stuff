@@ -1,4 +1,37 @@
-#!/bin/bash
+#!/usr/bin/bash
+
+get_help(){
+cat <<HERE
+Allow remote access to a named qube.
+
+Syntax: in.sh [-h | [ a|p ]] {add|delete} target {tcp|udp} {port number|service} [external port]
+options:
+h   Print this help
+a   Auto mode
+p   Permanent rules
+
+Specify target qube, action, tcp or udp, and target port, separated by spaces.
+The target port can be given by port number or by name (e.g ssh).
+The action should be "add" or "delete".
+For example:
+  in add target_qube tcp 80
+  in add target_qube tcp ssh
+  in delete target_qube tcp https
+
+By default, the script will open a port on the final netvm which is the same as the target port.
+It is possible to specify an alternative port:
+  in add target_qube tcp ssh 80
+
+In auto mode a port will be opened on the FIRST external interface.
+In permanent mode changes to the firewall will be written in each qube to take effect on qube start up.
+
+DO NOT use this script for qubes behind a Tor or VPN proxy.
+At a minimum you risk breaking the security of those proxies.
+
+HERE
+exit
+}
+
 
 # Check input port
 check_port(){
@@ -14,41 +47,17 @@ else
 fi
 if [ $status -ne 0 ]; then
   if !  grep -q -w ^$2\  /etc/services  ; then
-    echo "Specify usable port number"
+    echo "Specify usable port number or service name"
     exit
   else
     portnum=$( getent services $2 |awk '{split($2,a,"/");print a[1]}')
     if [ $? -ne 0 ]; then
-      echo "Specify usable port number"
+      echo "Specify usable port number or service name"
       exit
     fi
   fi
 fi
 echo $portnum
-}
-
-
-get_help(){
-cat <<HERE
-Allow remote access to a named qube.
-
-Specify target qube, action, tcp or udp, and target port, separated by spaces.
-The target port can be given by port number or by name (e.g ssh).
-The action should be "add" or "delete".
-For example:
-  in add target_qube tcp 80 
-  in add target_qube tcp ssh 
-  in delete target_qube tcp https 
-
-DO NOT use this script for qubes behind a Tor or VPN proxy.
-At a minimum you risk breaking the security of those proxies.
-
-By default, the script will open a port on the final netvm which is the same as the target port.
-It is possible to specify an alternative port:
-  in add target_qube tcp ssh 80
-
-HERE
-exit
 }
 
 
@@ -67,10 +76,9 @@ numhops=${#my_ips[@]}
 lasthop=$((numhops-1))
 local i=1
 iface="eth0"
-# Check port is available" 
-qvm-run -q -u root ${my_netvms[$lasthop]} " nft list table nat|grep ' $proto dport $portnum dnat '"
+qvm-run -q -u root ${my_netvms[$lasthop]} " nft list table nat|grep ' $proto dport $portnum dnat to ${my_ips[$numhops-1]}'"
 if [ $? -eq 0 ]; then
-  echo "External port is already in use" 
+  echo "Are rules already set?"
   exit
 fi
 while [ $i -ne $numhops ]
@@ -91,9 +99,17 @@ do
   if [[ x$found == 'x' ]]; then
     qvm-run -q -u root ${my_netvms[$i]} -- "iptables -I QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT"
     qvm-run -q -u root ${my_netvms[$i]} -- "iptables -t nat -I PR-QBS-SERVICES -i $iface -p $proto --dport $portnum_used -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target"
+    if [ $permanent -eq 1 ]; then
+      qvm-run -q -u root ${my_netvms[$i]} -- "echo iptables -I QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT >> /rw/config/rc.local"
+      qvm-run -q -u root ${my_netvms[$i]} -- "echo iptables -t nat -I PR-QBS-SERVICES -i $iface -p $proto --dport $portnum_used -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target >> /rw/config/rc.local"
+    fi
   else
     qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule nat PR-QBS-SERVICES meta iifname $iface $proto dport $portnum_used dnat to ${my_ips[$i-1]}:$portnum_target
     qvm-run -q -u root ${my_netvms[$i]} -- nft insert rule filter QBS-FORWARD meta iifname $iface ip daddr ${my_ips[$i-1]} $proto dport $portnum_target ct state new accept
+    if  [ $permanent -eq 1 ]; then
+      qvm-run -q -u root ${my_netvms[$i]} -- "echo nft insert rule nat PR-QBS-SERVICES meta iifname $iface $proto dport $portnum_used dnat to ${my_ips[$i-1]}:$portnum_target >> /rw/config/rc.local"
+      qvm-run -q -u root ${my_netvms[$i]} -- "echo nft insert rule filter QBS-FORWARD meta iifname $iface ip daddr ${my_ips[$i-1]} $proto dport $portnum_target ct state new accept >> /rw/config/rc.local"
+    fi
   fi
   ((i++))
 done
@@ -125,11 +141,19 @@ do
   if [[ x$found == 'x' ]]; then
     qvm-run -q -u root ${my_netvms[$i]} -- "iptables -D QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT"
     qvm-run -q -u root ${my_netvms[$i]} -- "iptables -t nat -D PR-QBS-SERVICES -i $iface -p $proto --dport $external_portnum -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target"
+    if [ $permanent -eq 1 ]; then
+      qvm-run -q -u root ${my_netvms[$i]} -- "sed -i '/iptables -D QBS-FORWARD -i $iface -p $proto --dport $portnum_target -d ${my_ips[$i-1]} -j ACCEPT/d' /rw/config/rc.local"
+      qvm-run -q -u root ${my_netvms[$i]} -- "sed -i '/iptables -t nat -D PR-QBS-SERVICES -i $iface -p $proto --dport $external_portnum -j DNAT --to-destination ${my_ips[$i-1]}:$portnum_target/d' /rw/config/rc.local"
+    fi
   else
     local handle=$( get_handle ${my_netvms[$i]} nat "dport $external_portnum " 1 )
     qvm-run -q  -u root ${my_netvms[$i]} -- "nft delete rule nat PR-QBS-SERVICES handle $handle"
     local handle=$( get_handle ${my_netvms[$i]} filter "dport $external_portnum " 1 )
     qvm-run -q -u root ${my_netvms[$i]} -- "nft delete rule filter QBS-FORWARD handle $handle"
+    if [ $permanent -eq 1 ]; then
+      qvm-run -q -u root ${my_netvms[$i]} -- "sed -i '/nft insert rule nat PR-QBS-SERVICES meta iifname $iface $proto dport $portnum_used dnat to ${my_ips[$i-1]}:$portnum_target/d'  /rw/config/rc.local"
+      qvm-run -q -u root ${my_netvms[$i]} -- "sed -i '/nft insert rule filter QBS-FORWARD meta iifname $iface ip daddr ${my_ips[$i-1]} $proto dport $portnum_target ct state new accept/d'  /rw/config/rc.local"
+    fi
   fi
   ((i--))
 done
@@ -148,6 +172,27 @@ list(){
 return
 }
 
+
+## Defaults
+auto=0
+permanent=0
+
+## Get options
+optstring=":hap"
+while getopts ${optstring} option ; do
+  case $option in
+    h)
+      get_help
+      exit ;;
+    a)
+      auto=1 ;;
+    p)
+      permanent=1 ;;
+    ?)
+      get_help ;;
+  esac
+done
+shift $((OPTIND -1))
 
 ## Check inputs
 if [ $# -lt 4 ]; then
@@ -201,6 +246,8 @@ elif [ $1 == "add" ]; then
   num_ifs=${#external_ips[@]}
   if [ $num_ifs -eq 1 ]; then
     interface=0
+  elif [ $auto -eq 1 ]; then
+    interface=0
   elif [ $num_ifs -gt 1 ]; then
     echo "${netvms[$hop]} has more than 1 external interface"
     echo "Which one do you want to use?"
@@ -219,8 +266,8 @@ elif [ $1 == "add" ]; then
     ((interface--))
   else
     echo "${netvms[$hop]} does not have an external interface"
-  echo "Cannot set up a tunnel"
-  exit
+    echo "Cannot set up a tunnel"
+    exit
   fi
   external_ip=${external_ips[$interface]}
   external_iface="${external_ip%[[:space:]]*}"
