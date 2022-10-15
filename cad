@@ -1,0 +1,2 @@
+#!/bin/sh
+xdotool search --name $1 key ctrl+alt+Delete
