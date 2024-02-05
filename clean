@@ -1,0 +1,13 @@
+#!/bin/sh
+
+if [ $# == 0 ]; then
+echo "usage:clean QUBE - wipes Private Storage."
+exit
+fi
+
+qvm-check $1 --quiet
+if [ $? == 0 ]; then
+sudo lvdisplay |grep vm\-$1\-private|awk '/Name/{ print "sudo lvchange -an qubes_dom0/"$3 }' |sh
+sudo lvdisplay |grep vm\-$1\-private|awk '/Name/{ print "sudo lvremove  qubes_dom0/"$3 }' |sh
+sudo lvcreate --thin --setactivationskip=n --activate=y --name=vm-$1-private --virtualsize=2048M qubes_dom0/vm-pool
+fi
